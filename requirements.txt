@@ -3,5 +3,5 @@ pandas
 yfinance
 matplotlib
 numpy
-seaborn
 pyxirr
+requests
