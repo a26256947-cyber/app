@@ -17,7 +17,6 @@ st.markdown("""
 footer {visibility: hidden;}
 header {visibility: hidden;}
 .stApp { background-color: #000000; color: #ffffff; }
-[data-testid="stSidebar"] { background-color: #121212; }
 div[data-testid="metric-container"] {
     background-color: #1c1c1e;
     border-radius: 16px;
@@ -27,10 +26,12 @@ div[data-testid="metric-container"] {
 div[data-testid="stMetricLabel"] { color: #8e8e93; font-size: 14px; }
 div[data-testid="stMetricValue"] { color: #ffffff; font-weight: 700; }
 h1, h2, h3, p { color: #ffffff !important; }
-/* Tab 樣式調整 */
 .stTabs [data-baseweb="tab-list"] { background-color: transparent; }
 .stTabs [data-baseweb="tab"] { color: #8e8e93; }
 .stTabs [aria-selected="true"] { color: #ffffff; border-bottom-color: #ffffff; }
+/* 優化 Expander (展開區塊) 的深色外觀 */
+.streamlit-expanderHeader { background-color: #1c1c1e !important; color: white !important; border-radius: 10px; }
+div[data-testid="stExpander"] { background-color: #121212; border: 1px solid #2c2c2e; border-radius: 10px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -56,18 +57,20 @@ plt.rcParams.update({
     'xtick.color': '#8e8e93', 'ytick.color': '#8e8e93'
 })
 
-# --- 3. 側邊欄：上傳與動態入金 ---
-st.sidebar.header("設定中心")
-uploaded_file = st.sidebar.file_uploader("上傳 trades.csv", type="csv")
-
-st.sidebar.subheader("💰 入金紀錄")
-num_inflows = st.sidebar.number_input("入金筆數", min_value=1, max_value=20, value=2)
-inflow_records = {}
-for i in range(int(num_inflows)):
-    c1, c2 = st.sidebar.columns(2)
-    with c1: d = st.date_input(f"日期 {i+1}", key=f"d_{i}")
-    with c2: a = st.number_input(f"金額 {i+1}", value=200000 if i==0 else 0, key=f"a_{i}")
-    if a != 0: inflow_records[d.strftime('%Y-%m-%d')] = a
+# --- 3. 手機版優化：將設定區移至主畫面中央 ---
+with st.expander("⚙️ 點此上傳資料與設定入金", expanded=True):
+    uploaded_file = st.file_uploader("上傳 trades.csv", type="csv")
+    
+    st.markdown("---")
+    st.markdown("💰 **入金紀錄設定**")
+    num_inflows = st.number_input("入金筆數", min_value=1, max_value=20, value=2)
+    inflow_records = {}
+    
+    for i in range(int(num_inflows)):
+        c1, c2 = st.columns(2)
+        with c1: d = st.date_input(f"日期 {i+1}", key=f"d_{i}")
+        with c2: a = st.number_input(f"金額 {i+1}", value=200000 if i==0 else 0, key=f"a_{i}", step=10000)
+        if a != 0: inflow_records[d.strftime('%Y-%m-%d')] = a
 
 if uploaded_file:
     # --- 4. 核心計算大腦 ---
@@ -83,12 +86,10 @@ if uploaded_file:
     inflow_series = pd.Series(inflow_records)
     inflow_series.index = pd.to_datetime(inflow_series.index)
 
-    # 建立日期矩陣
     all_dates = pd.date_range(start=start_date, end=end_date, freq='D')
     holdings = pd.DataFrame(index=all_dates, columns=df['代號'].unique()).fillna(0)
     cash_flow = pd.Series(0.0, index=all_dates)
 
-    # 處理買賣
     for _, row in df.iterrows():
         if row['買入日期'] <= end_date:
             amt = row['股數'] * row['買入價格']
@@ -117,7 +118,6 @@ if uploaded_file:
         total_equity = stock_value_df.sum(axis=1) + daily_cash
         total_equity = pd.to_numeric(total_equity, errors='coerce').fillna(0).astype(float)
 
-        # 計算淨值 (NAV)
         unit_nav = pd.Series(index=all_dates, dtype=float)
         units = 0.0
         for date in all_dates:
@@ -154,10 +154,10 @@ if uploaded_file:
     tab1, tab2 = st.tabs(["🗓️ 變動日曆", "📈 趨勢圖"])
     
     with tab1:
-        # 日曆邏輯
         last_date = daily_ret.index.max()
         year, month = last_date.year, last_date.month
         m_ret = daily_ret[(daily_ret.index.year == year) & (daily_ret.index.month == month)] * 100
+        calendar.setfirstweekday(calendar.SUNDAY)
         cal_matrix = calendar.monthcalendar(year, month)
         
         html = f'<div style="background-color:#1c1c1e;border-radius:16px;padding:20px;"><h3 style="text-align:center;">{year}年{month}月</h3>'
@@ -183,7 +183,9 @@ if uploaded_file:
         ax.plot(unit_nav.index, unit_nav, color='#0a84ff', linewidth=2, label='策略淨值')
         ax.scatter(unit_nav.idxmax(), unit_nav.max(), color='#ffd60a', s=100, marker='*', zorder=5)
         ax.set_title("累積淨值 (NAV) 走勢", color='white')
+        for spine in ax.spines.values(): spine.set_visible(False)
         st.pyplot(fig)
 
 else:
-    st.info("👈 請在左側上傳您的 trades.csv 檔案")
+    # 當沒有上傳檔案時，顯示友善提示
+    st.info("👆 請展開上方選單，上傳您的 trades.csv 檔案來開始分析！")
