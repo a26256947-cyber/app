@@ -80,7 +80,7 @@ if uploaded_file:
     daily_inflow_sum = inflow_series.reindex(all_dates).fillna(0).cumsum()
     daily_cash = daily_inflow_sum + cash_flow.cumsum()
 
-    # 下載股價與計算 AUM
+   # 下載股價與計算 AUM
     with st.spinner('⏳ 正在下載最新股價與大盤，請稍候...'):
         stock_value_df = pd.DataFrame(index=all_dates).fillna(0)
         for code in holdings.columns:
@@ -91,7 +91,9 @@ if uploaded_file:
                     stock_value_df[code] = holdings[code] * (close.iloc[:,0] if isinstance(close, pd.DataFrame) else close)
                     break
 
+        # 👇 [修復點 1] 強制將總資產轉為純數字，避免畫圖當機
         total_equity = stock_value_df.sum(axis=1) + daily_cash
+        total_equity = pd.to_numeric(total_equity, errors='coerce').fillna(0).astype(float)
 
         # 計算 NAV
         unit_nav = pd.Series(index=all_dates, dtype=float)
@@ -103,14 +105,19 @@ if uploaded_file:
             else:
                 unit_nav.loc[date] = (eq - inf) / current_units
                 if inf > 0: current_units += (inf / unit_nav.loc[date])
+        
+        # 👇 [修復點 2] 確保淨值也是純數字
+        unit_nav = pd.to_numeric(unit_nav, errors='coerce').fillna(1.0).astype(float)
 
         # 下載大盤
         twii_data = yf.download('^TWII', start=start_date, end=end_date + pd.Timedelta(days=1), progress=False)
         twii = twii_data['Close'] if 'Close' in twii_data.columns else twii_data.iloc[:, 0]
         if isinstance(twii, pd.DataFrame): twii = twii.iloc[:, 0]
+        
+        # 👇 [修復點 3] 確保大盤數據也是純數字
         benchmark = twii.reindex(all_dates).ffill()
+        benchmark = pd.to_numeric(benchmark, errors='coerce').astype(float)
         benchmark_ret = benchmark / benchmark.iloc[0]
-
     # ------------------------------------------
     # 4. 手機版精華：今日關鍵指標 (Metrics)
     # ------------------------------------------
