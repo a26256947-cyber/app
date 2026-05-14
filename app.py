@@ -36,30 +36,33 @@ h1, h2, h3, p { color: #ffffff !important; }
 
 st.title("📈 淨資產儀表板")
 
-# --- 2. 終極解決字體亂碼問題 ---
+# --- 2. 系統字體掛載 ---
 @st.cache_resource
-def load_chinese_font():
-    # 下載微軟正黑體或思源黑體的輕量版 (從 GitHub 下載確保 100% 存在)
-    font_url = "https://github.com/StellarCN/noto-sans-sc-provisional/raw/master/unhinted/NotoSansSC-Regular.otf"
-    font_path = "NotoSansSC-Regular.otf"
-    if not os.path.exists(font_path):
-        urllib.request.urlretrieve(font_url, font_path)
+def set_chinese_font():
+    import matplotlib.font_manager as fm
+    import os
+    # 這是 packages.txt 自動安裝後的字體路徑
+    font_path = "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"
     
-    # 註冊字體
-    fm.fontManager.addfont(font_path)
-    prop = fm.FontProperties(fname=font_path)
-    plt.rcParams['font.sans-serif'] = [prop.get_name()]
+    try:
+        if os.path.exists(font_path):
+            fm.fontManager.addfont(font_path)
+            font_name = fm.FontProperties(fname=font_path).get_name()
+            plt.rcParams['font.sans-serif'] = [font_name, 'sans-serif']
+        else:
+            plt.rcParams['font.sans-serif'] = ['Microsoft JhengHei', 'PingFang TC', 'sans-serif']
+    except Exception:
+        pass
+        
     plt.rcParams['axes.unicode_minus'] = False 
-    return prop.get_name()
 
-font_family = load_chinese_font()
+set_chinese_font()
 
-# 強制設定圖表樣式
+# 圖表深色模式設定
 plt.style.use('dark_background')
 plt.rcParams.update({
     'axes.facecolor': '#1c1c1e',
     'figure.facecolor': '#000000',
-    'font.family': font_family, # 這裡設定剛下載的字體
     'text.color': 'white',
     'axes.labelcolor': 'white',
     'xtick.color': '#8e8e93',
