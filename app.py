@@ -34,11 +34,24 @@ plt.rcParams['axes.unicode_minus'] = False
 st.sidebar.header("設定中心")
 uploaded_file = st.sidebar.file_uploader("上傳 trades.csv", type="csv")
 
-st.sidebar.subheader("入金紀錄 (選填)")
-inflow_date_1 = st.sidebar.date_input("入金日期 1", value=pd.to_datetime("2024-01-01"))
-inflow_amt_1 = st.sidebar.number_input("金額 1", value=200000)
-inflow_date_2 = st.sidebar.date_input("入金日期 2", value=pd.to_datetime("2026-02-01"))
-inflow_amt_2 = st.sidebar.number_input("金額 2", value=400000)
+st.sidebar.subheader("💰 入金紀錄 (動態新增)")
+# [優化 1] 讓使用者自己決定要幾筆入金
+num_inflows = st.sidebar.number_input("您要輸入幾筆入金紀錄？", min_value=1, max_value=20, value=2, step=1)
+
+inflow_records = {}
+for i in range(int(num_inflows)):
+    col1, col2 = st.sidebar.columns(2)
+    with col1:
+        d = st.date_input(f"日期 {i+1}", key=f"date_{i}")
+    with col2:
+        # 預設第一筆為 20萬，其餘為 0
+        default_amt = 200000 if i == 0 else 0
+        a = st.number_input(f"金額 {i+1}", value=default_amt, step=10000, key=f"amt_{i}")
+    
+    if a != 0:
+        date_str = d.strftime('%Y-%m-%d')
+        # 如果同一天有多筆入金，自動加總
+        inflow_records[date_str] = inflow_records.get(date_str, 0) + a
 
 if uploaded_file:
     # 讀取與清理資料
@@ -51,11 +64,6 @@ if uploaded_file:
     start_date = df['買入日期'].min()
     end_date = pd.Timestamp.now().normalize()
     
-    # 入金設定
-    inflow_records = {
-        inflow_date_1.strftime('%Y-%m-%d'): inflow_amt_1,
-        inflow_date_2.strftime('%Y-%m-%d'): inflow_amt_2
-    }
     inflow_series = pd.Series(inflow_records)
     inflow_series.index = pd.to_datetime(inflow_series.index)
 
@@ -80,7 +88,7 @@ if uploaded_file:
     daily_inflow_sum = inflow_series.reindex(all_dates).fillna(0).cumsum()
     daily_cash = daily_inflow_sum + cash_flow.cumsum()
 
-   # 下載股價與計算 AUM
+    # 下載股價與計算 AUM
     with st.spinner('⏳ 正在下載最新股價與大盤，請稍候...'):
         stock_value_df = pd.DataFrame(index=all_dates).fillna(0)
         for code in holdings.columns:
@@ -91,7 +99,6 @@ if uploaded_file:
                     stock_value_df[code] = holdings[code] * (close.iloc[:,0] if isinstance(close, pd.DataFrame) else close)
                     break
 
-        # 👇 [修復點 1] 強制將總資產轉為純數字，避免畫圖當機
         total_equity = stock_value_df.sum(axis=1) + daily_cash
         total_equity = pd.to_numeric(total_equity, errors='coerce').fillna(0).astype(float)
 
@@ -106,45 +113,55 @@ if uploaded_file:
                 unit_nav.loc[date] = (eq - inf) / current_units
                 if inf > 0: current_units += (inf / unit_nav.loc[date])
         
-        # 👇 [修復點 2] 確保淨值也是純數字
         unit_nav = pd.to_numeric(unit_nav, errors='coerce').fillna(1.0).astype(float)
 
         # 下載大盤
         twii_data = yf.download('^TWII', start=start_date, end=end_date + pd.Timedelta(days=1), progress=False)
         twii = twii_data['Close'] if 'Close' in twii_data.columns else twii_data.iloc[:, 0]
         if isinstance(twii, pd.DataFrame): twii = twii.iloc[:, 0]
-        
-        # 👇 [修復點 3] 確保大盤數據也是純數字
         benchmark = twii.reindex(all_dates).ffill()
         benchmark = pd.to_numeric(benchmark, errors='coerce').astype(float)
         benchmark_ret = benchmark / benchmark.iloc[0]
+
     # ------------------------------------------
     # 4. 手機版精華：今日關鍵指標 (Metrics)
     # ------------------------------------------
-    st.subheader("今日戰報")
+    st.subheader("📊 總體戰報")
     daily_ret = unit_nav.pct_change().dropna()
     latest_nav = unit_nav.iloc[-1]
     prev_nav = unit_nav.iloc[-2] if len(unit_nav) > 1 else latest_nav
+    prev_equity = total_equity.iloc[-2] if len(total_equity) > 1 else total_equity.iloc[-1]
+    
+    # [優化 3] 計算當日跳動的「絕對金額」與「百分比」
+    day_amt_change = total_equity.iloc[-1] - prev_equity
     day_change = (latest_nav / prev_nav - 1) * 100
     
-    col1, col2, col3 = st.columns(3)
+    # 排版分為上下兩排，適合手機觀看
+    col1, col2 = st.columns(2)
     with col1:
-        st.metric("總資產 (AUM)", f"${total_equity.iloc[-1]:,.0f}", f"{day_change:+.2f}%")
+        # [優化 2] 改為台幣(元)顯示，不再用 $
+        st.metric("總資產 (AUM)", f"{total_equity.iloc[-1]:,.0f} 元", f"{day_amt_change:+,.0f} 元 ({day_change:+.2f}%)")
     with col2:
+        # [優化 4] 新增歷史總報酬
+        all_time_ret = (unit_nav.iloc[-1] - 1) * 100
+        st.metric("歷史總報酬", f"{all_time_ret:+.2f}%")
+        
+    col3, col4 = st.columns(2)
+    with col3:
         ytd_start = pd.Timestamp(f"{end_date.year}-01-01")
         if ytd_start in unit_nav.index:
             ytd_ret = (unit_nav.iloc[-1] / unit_nav.loc[ytd_start] - 1) * 100
         else:
             ytd_ret = (unit_nav.iloc[-1] / unit_nav.iloc[0] - 1) * 100
         st.metric("今年以來 (YTD)", f"{ytd_ret:+.2f}%")
-    with col3:
+    with col4:
         try:
             xirr_val = xirr([(d,-v) for d,v in inflow_records.items()]+[(all_dates[-1],total_equity.iloc[-1])])
             st.metric("真實年化 (XIRR)", f"{xirr_val:.2%}")
         except:
             st.metric("真實年化 (XIRR)", "N/A")
 
-    # 歷史高點
+    # 歷史高點與回撤
     ath_val = unit_nav.max()
     mdd = ((unit_nav / unit_nav.cummax()) - 1).min()
     st.write(f"🏆 歷史最高淨值: `{ath_val:.3f}` | ⚠️ 最大回撤: `{mdd:.2%}`")
@@ -161,7 +178,6 @@ if uploaded_file:
         ax_aum.set_yticks([])
         ax1.plot(unit_nav.index, unit_nav, label='Strategy (NAV)', color='#d62728', linewidth=2)
         ax1.plot(benchmark_ret.index, benchmark_ret, label='Market (^TWII)', color='#2ca02c', linestyle='--', alpha=0.6)
-        # 標註 ATH
         ath_date = unit_nav.idxmax()
         ax1.scatter(ath_date, ath_val, color='gold', s=150, marker='*', edgecolors='black', zorder=5)
         ax1.legend(loc='upper left')
@@ -186,6 +202,7 @@ if uploaded_file:
         cal_df = pd.DataFrame(cal_matrix, columns=['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'], dtype=float)
         heat_data = pd.DataFrame(index=cal_df.index, columns=cal_df.columns, dtype=float)
         annot_data = pd.DataFrame(index=cal_df.index, columns=cal_df.columns, dtype=object)
+        
         for week in range(len(cal_matrix)):
             for day_idx, day in enumerate(cal_matrix[week]):
                 if day == 0:
@@ -196,10 +213,13 @@ if uploaded_file:
                     if date_obj in month_ret.index:
                         val = month_ret.loc[date_obj]
                         heat_data.iat[week, day_idx] = val
-                        annot_data.iat[week, day_idx] = f"{day}日\n{val:+.2f}%"
+                        # [優化 5] 拿掉 '日' 這個字，直接顯示數字與百分比，徹底解決亂碼
+                        annot_data.iat[week, day_idx] = f"{day}\n{val:+.2f}%"
                     else:
                         heat_data.iat[week, day_idx] = 0.0
-                        annot_data.iat[week, day_idx] = f"{day}日\n--"
+                        # [優化 5] 同樣拿掉 '日'
+                        annot_data.iat[week, day_idx] = f"{day}\n--"
+                        
         sns.heatmap(heat_data, annot=annot_data, fmt="", cmap="RdYlGn", center=0, cbar=False,
                     linewidths=2, linecolor='white', ax=ax3)
         ax3.set_yticks([])
