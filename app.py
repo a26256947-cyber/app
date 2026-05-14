@@ -169,7 +169,7 @@ if uploaded_file:
 
     with tab2:
         fig2, ax2 = plt.subplots(figsize=(8, 5))
-        monthly_ret = unit_nav.resample('M').last().pct_change().fillna(unit_nav.iloc[0]-1)
+        monthly_ret = unit_nav.resample('ME').last().pct_change().fillna(unit_nav.iloc[0]-1)
         heatmap_df = monthly_ret.to_frame(name='ret')
         heatmap_df['year'] = heatmap_df.index.year
         heatmap_df['month'] = heatmap_df.index.month
